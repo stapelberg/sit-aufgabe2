@@ -5,6 +5,7 @@ use Dancer::Plugin::Database;
 # in core
 use MIME::Base64;
 use File::Temp qw(tempfile);
+use Data::Dumper;
 
 our $VERSION = '0.1';
 
@@ -35,13 +36,14 @@ get '/signed_server_pubkey/:username' => sub {
     if (@sigs != 1) {
         return 'ERROR: Signature not found';
     }
-    return $sigs[0]->{signature};
+    return to_json { pubkey => get_server_pubkey(), signature => $sigs[0]->{signature} };
 };
 
 post '/register_new_user' => sub {
-    my $username = param('name') // '';
-    my $pubkey = param('publickey') // '';
-    my $expiration = param('expiration') // '';
+    my $params = from_json(request->body);
+    my $username = $params->{'name'} // '';
+    my $pubkey = $params->{'publickey'} // '';
+    my $expiration = $params->{'expiration'} // '';
 
     if ($username eq '' ||
         $pubkey eq '' ||
@@ -59,8 +61,9 @@ post '/register_new_user' => sub {
 };
 
 post '/store_signature' => sub {
-    my $username = param('name') // '';
-    my $signature = param('signature') // '';
+    my $params = from_json(request->body);
+    my $username = $params->{'name'} // '';
+    my $signature = $params->{'signature'} // '';
 
     if ($username eq '' ||
         $signature eq '') {

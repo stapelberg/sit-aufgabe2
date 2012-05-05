@@ -7,6 +7,8 @@ use Data::Dumper;
 use AnyEvent;
 use AnyEvent::HTTP;
 use File::Temp qw(tempfile);
+# not in core
+use JSON::XS;
 use v5.10;
 
 sub generate_pubkey_for {
@@ -45,4 +47,26 @@ say "pubkey = $pubkey";
 # 2: signierten pubkey des servers abrufen
 my $signed_server_pubkey = get_from_server("/signed_server_pubkey/$username");
 die "Could not get pubkey (timeout)" unless defined($signed_server_pubkey);
+$signed_server_pubkey = decode_json($signed_server_pubkey);
+
 say 'pubkey = ' . Dumper($signed_server_pubkey);
+
+# 3: Verify the signature.
+my ($sigfh, $signame) = tempfile();
+my ($pubkeyfh, $pubkeyname) = tempfile();
+print $sigfh $signed_server_pubkey->{signature};
+print $pubkeyfh $signed_server_pubkey->{pubkey};
+system(('seccure-verify', '-i', $pubkeyname, '-s', $signame, $pubkey));
+if ($? == -1) {
+    die "failed to execute seccure-verify: $!\n";
+} elsif ($? & 127) {
+    die "seccure-verify died with signal " . ($? & 127);
+} else {
+    if (($? >> 8) != 0) {
+        die "pubkey verification failed.";
+    }
+}
+close($sigfh);
+close($pubkeyfh);
+
+say "Successfully verified server signature.";
