@@ -42,11 +42,27 @@ post '/register_new_user' => sub {
     }
 
     debug "Registering new user $username with pubkey $pubkey and expiration $expiration";
-    my $db = database;
-    $db->quick_insert('users', {
+    database->quick_insert('users', {
         name => $username,
         publickey => $pubkey,
         expiration => $expiration,
+    });
+    return "yay";
+};
+
+post '/store_signature' => sub {
+    my $username = param('name') // '';
+    my $signature = param('signature') // '';
+
+    if ($username eq '' ||
+        $signature eq '') {
+        return 'ERROR: Parameter missing (need name, signature)';
+    }
+
+    debug "Storing signature $signature for username $username";
+    database->quick_insert('signatures', {
+        name => $username,
+        signature => $signature,
     });
     return "yay";
 };
