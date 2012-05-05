@@ -30,6 +30,14 @@ get '/server_pubkey' => sub {
     return get_server_pubkey();
 };
 
+get '/signed_server_pubkey/:username' => sub {
+    my @sigs = database->quick_select('signatures', { name => param('username') });
+    if (@sigs != 1) {
+        return 'ERROR: Signature not found';
+    }
+    return $sigs[0]->{signature};
+};
+
 post '/register_new_user' => sub {
     my $username = param('name') // '';
     my $pubkey = param('publickey') // '';
