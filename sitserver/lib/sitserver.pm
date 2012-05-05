@@ -2,12 +2,32 @@
 package sitserver;
 use Dancer ':syntax';
 use Dancer::Plugin::Database;
+# in core
+use MIME::Base64;
+use File::Temp qw(tempfile);
 
 our $VERSION = '0.1';
 
+my $pubkey = undef;
+
+sub get_server_pubkey() {
+    # Generate the publickey from the private key if necessary.
+    if (!defined($pubkey)) {
+        my ($fh, $name) = tempfile();
+        print $fh setting('server_privkey');
+        $pubkey = qx(seccure-key -F $name -q 2>/dev/null);
+        chomp($pubkey);
+        close($fh);
+    }
+    return $pubkey;
+}
 
 get '/' => sub {
     return 'This webserver is accessible via SIT only';
+};
+
+get '/server_pubkey' => sub {
+    return get_server_pubkey();
 };
 
 post '/register_new_user' => sub {
