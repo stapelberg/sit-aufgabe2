@@ -2,6 +2,16 @@
 # env-related settings should go to environments/$env.yml
 # all the settings in this file will be loaded at Dancer's startup.
 
+################################################################################
+# sit settings
+################################################################################
+
+server_privkey: 'geheim'
+
+################################################################################
+# end of sit settings
+################################################################################
+
 auto_reload: 1
 
 # Your application's name
@@ -29,3 +39,8 @@ template: "simple"
 #     start_tag: '[%'
 #     end_tag:   '%]'
 
+
+plugins:
+  Database:
+    driver: "SQLite"
+    database: "sitserver.sqlite"
