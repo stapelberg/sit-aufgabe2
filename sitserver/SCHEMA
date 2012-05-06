@@ -1,2 +1,3 @@
 CREATE TABLE users (name TEXT PRIMARY KEY NOT NULL, publickey TEXT NOT NULL, expiration DATETIME NOT NULL);
 CREATE TABLE signatures (name TEXT PRIMARY KEY NOT NULL, signature TEXT NOT NULL);
+CREATE TABLE session_keys (session_key BLOB NOT NULL, session_key_hash TEXT NOT NULL, created DATETIME);

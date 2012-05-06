@@ -7,6 +7,8 @@ use MIME::Base64;
 use File::Temp qw(tempfile);
 use Data::Dumper;
 use IO::All; # not in core
+use Digest::SHA qw(sha1_hex);
+use POSIX qw(strftime);
 
 our $VERSION = '0.1';
 
@@ -41,13 +43,21 @@ get '/signed_server_pubkey/:username' => sub {
 };
 
 get '/session_key/:username' => sub {
-    open(my $randfh, '<', '/dev/urandom');
-    binmode $randfh;
+    my $db = database;
     my $random_numbers;
-    read($randfh, $random_numbers, 1024);
-    close($randfh);
+    while (1) {
+        open(my $randfh, '<', '/dev/urandom');
+        binmode $randfh;
+        read($randfh, $random_numbers, 1024);
+        close($randfh);
 
-    # TODO: save the hash of that and repeat until we have unique random numbers
+        my $hash = sha1_hex($random_numbers);
+        my @old_session_keys = $db->quick_select('session_keys', { session_key_hash => $hash });
+        if (@old_session_keys == 0) {
+            $db->quick_insert('session_keys', { session_key => $random_numbers, session_key_hash => $hash, created => strftime("%Y-%m-%d %H:%M:%S", localtime()) });
+            last;
+        }
+    }
 
     my @pubkeys = database->quick_select('users', { name => param('username') });
     my $pubkey = $pubkeys[0]->{publickey};
@@ -58,7 +68,6 @@ get '/session_key/:username' => sub {
     print $rndfh $random_numbers;
     say $pwfh setting('server_privkey');
     system(qq|seccure-signcrypt -i $rndname -o $outname -F $pwname '$pubkey'|);
-    debug "outname = $outname";
     return encode_base64(io($outname)->binary->slurp);
 };
 
