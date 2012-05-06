@@ -11,6 +11,7 @@ use MIME::Base64;
 # not in core
 use JSON::XS;
 use IO::All;
+use Crypt::Rijndael;
 use v5.10;
 
 sub generate_pubkey_for {
@@ -30,6 +31,23 @@ sub get_from_server {
 # TODO: don’t hardcode the first part of the URL
     http_get "http://localhost:3000$path",
         headers => $headers,
+        sub {
+            $cv->send($_[0], $_[1]);
+            undef $timeout;
+        };
+    $timeout = AnyEvent->timer(after => 1, cb => sub { $cv->send; undef $timeout; });
+    return $cv->recv;
+}
+
+sub post_to_server {
+    my ($path, $body, $headers) = @_;
+    my $cv = AE::cv;
+    my $timeout;
+# TODO: don’t hardcode the first part of the URL
+    http_post "http://localhost:3000$path",
+        $body,
+        headers => $headers,
+        recurse => 0,
         sub {
             $cv->send($_[0], $_[1]);
             undef $timeout;
@@ -109,7 +127,18 @@ $session_key = io($decryptedname)->binary->slurp;
 close($decryptedfh);
 close($pwfh);
 
-say "ok";
-say "decrypted session key = " . Dumper($session_key);
-
 # 5: Encrypt the file with the session key and send it to the server.
+
+my $key = substr($session_key, 0, 32);
+my $cipher = Crypt::Rijndael->new($key, Crypt::Rijndael::MODE_CBC());
+
+$cipher->set_iv(substr($session_key, 32, 16));
+my $payload = 'trolol, es funktioniert';
+while ((length($payload) % 16) != 0) {
+    $payload .= "X";
+}
+my $crypted = $cipher->encrypt($payload);
+
+say "Storing data on server…";
+my $result = post_to_server("/store_encrypted/$username", encode_base64($crypted));
+say "Server says: $result";

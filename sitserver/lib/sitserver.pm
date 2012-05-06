@@ -9,6 +9,7 @@ use Data::Dumper;
 use IO::All; # not in core
 use Digest::SHA qw(sha1_hex);
 use POSIX qw(strftime);
+use Crypt::Rijndael;
 
 our $VERSION = '0.1';
 
@@ -54,7 +55,12 @@ get '/session_key/:username' => sub {
         my $hash = sha1_hex($random_numbers);
         my @old_session_keys = $db->quick_select('session_keys', { session_key_hash => $hash });
         if (@old_session_keys == 0) {
-            $db->quick_insert('session_keys', { session_key => $random_numbers, session_key_hash => $hash, created => strftime("%Y-%m-%d %H:%M:%S", localtime()) });
+            $db->quick_insert('session_keys', {
+                session_key => encode_base64($random_numbers),
+                session_key_hash => $hash,
+                created => strftime("%Y-%m-%d %H:%M:%S", localtime()),
+                name => param('username'),
+            });
             last;
         }
     }
@@ -108,6 +114,31 @@ post '/store_signature' => sub {
         signature => $signature,
     });
     return "yay";
+};
+
+post '/store_encrypted/:username' => sub {
+    my $payload = decode_base64(request->body);
+
+    # Get the latest session key and try to decrypt this message.
+    my @session_keys = @{database->selectall_arrayref(q|SELECT * FROM session_keys WHERE name = ? ORDER BY created DESC LIMIT 1|, { Slice => {} }, param('username'))};
+    if (@session_keys < 1) {
+        return "No session key found.";
+    }
+
+    my $session_key = decode_base64($session_keys[0]->{session_key});
+    my $hash = sha1_hex($session_key);
+    if ($hash ne $session_keys[0]->{session_key_hash}) {
+        debug "Hash does not match";
+        status 500;
+        return "BUG: hash does not match";
+    }
+    my $key = substr($session_key, 0, 32);
+    my $cipher = Crypt::Rijndael->new($key, Crypt::Rijndael::MODE_CBC());
+
+    $cipher->set_iv(substr($session_key, 32, 16));
+    my $decrypted = $cipher->decrypt($payload);
+    debug 'decrypted = ' . Dumper($decrypted);
+    return "OK";
 };
 
 true;
