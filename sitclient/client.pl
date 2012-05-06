@@ -7,8 +7,10 @@ use Data::Dumper;
 use AnyEvent;
 use AnyEvent::HTTP;
 use File::Temp qw(tempfile);
+use MIME::Base64;
 # not in core
 use JSON::XS;
+use IO::All;
 use v5.10;
 
 sub generate_pubkey_for {
@@ -40,23 +42,25 @@ say "Enter username:";
 chomp(my $username = <STDIN>);
 say "Enter password:";
 chomp(my $pw = <STDIN>);
-say "pw = $pw";
 my $pubkey = generate_pubkey_for($pw);
-say "pubkey = $pubkey";
 
 # 2: signierten pubkey des servers abrufen
 my $signed_server_pubkey = get_from_server("/signed_server_pubkey/$username");
 die "Could not get pubkey (timeout)" unless defined($signed_server_pubkey);
 $signed_server_pubkey = decode_json($signed_server_pubkey);
 
-say 'pubkey = ' . Dumper($signed_server_pubkey);
-
 # 3: Verify the signature.
 my ($sigfh, $signame) = tempfile();
 my ($pubkeyfh, $pubkeyname) = tempfile();
 print $sigfh $signed_server_pubkey->{signature};
 print $pubkeyfh $signed_server_pubkey->{pubkey};
+open my $oldout, ">&STDOUT";  # "dup" the stdout filehandle
+open my $olderr, ">&STDOUT";  # "dup" the stdout filehandle
+close STDOUT;
+close STDERR;
 system(('seccure-verify', '-i', $pubkeyname, '-s', $signame, $pubkey));
+open STDOUT, '>&', $oldout;  # restore the dup'ed filehandle to STDOUT
+open STDERR, '>&', $olderr;  # restore the dup'ed filehandle to STDERR
 if ($? == -1) {
     die "failed to execute seccure-verify: $!\n";
 } elsif ($? & 127) {
@@ -70,3 +74,42 @@ close($sigfh);
 close($pubkeyfh);
 
 say "Successfully verified server signature.";
+
+# 4: Request the session key from the server.
+my $session_key = get_from_server("/session_key/$username");
+$session_key = decode_base64($session_key);
+my ($skfh, $skname) = tempfile();
+my ($decryptedfh, $decryptedname) = tempfile();
+my ($pwfh, $pwname) = tempfile();
+say $pwfh $pw;
+binmode $skfh;
+print $skfh $session_key;
+open $oldout, ">&STDOUT";  # "dup" the stdout filehandle
+open $olderr, ">&STDOUT";  # "dup" the stdout filehandle
+close STDOUT;
+close STDERR;
+open STDOUT, '>', '/dev/null';
+open STDERR, '>', '/dev/null';
+system(('seccure-veridec', '-i', $skname, '-o', $decryptedname, '-F', $pwname, $signed_server_pubkey->{pubkey}));
+close STDOUT;
+close STDERR;
+open STDOUT, '>&', $oldout;  # restore the dup'ed filehandle to STDOUT
+open STDERR, '>&', $olderr;  # restore the dup'ed filehandle to STDERR
+if ($? == -1) {
+    die "failed to execute seccure-veridec: $!\n";
+} elsif ($? & 127) {
+    die "seccure-veridec died with signal " . ($? & 127);
+} else {
+    if (($? >> 8) != 0) {
+        die "session key decryption failed.";
+    }
+}
+close($skfh);
+$session_key = io($decryptedname)->binary->slurp;
+close($decryptedfh);
+close($pwfh);
+
+say "ok";
+say "decrypted session key = " . Dumper($session_key);
+
+# 5: Encrypt the file with the session key and send it to the server.

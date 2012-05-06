@@ -6,6 +6,7 @@ use Dancer::Plugin::Database;
 use MIME::Base64;
 use File::Temp qw(tempfile);
 use Data::Dumper;
+use IO::All; # not in core
 
 our $VERSION = '0.1';
 
@@ -37,6 +38,28 @@ get '/signed_server_pubkey/:username' => sub {
         return 'ERROR: Signature not found';
     }
     return to_json { pubkey => get_server_pubkey(), signature => $sigs[0]->{signature} };
+};
+
+get '/session_key/:username' => sub {
+    open(my $randfh, '<', '/dev/urandom');
+    binmode $randfh;
+    my $random_numbers;
+    read($randfh, $random_numbers, 1024);
+    close($randfh);
+
+    # TODO: save the hash of that and repeat until we have unique random numbers
+
+    my @pubkeys = database->quick_select('users', { name => param('username') });
+    my $pubkey = $pubkeys[0]->{publickey};
+
+    my ($rndfh, $rndname) = tempfile();
+    my ($outfh, $outname) = tempfile();
+    my ($pwfh, $pwname) = tempfile();
+    print $rndfh $random_numbers;
+    say $pwfh setting('server_privkey');
+    system(qq|seccure-signcrypt -i $rndname -o $outname -F $pwname '$pubkey'|);
+    debug "outname = $outname";
+    return encode_base64(io($outname)->binary->slurp);
 };
 
 post '/register_new_user' => sub {
